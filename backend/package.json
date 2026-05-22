@@ -1,0 +1,17 @@
+{
+  "name": "dodge-warfare-backend",
+  "version": "1.0.0",
+  "description": "Backend server for Dodge Warfare game",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^8.0.0",
+    "socket.io": "^4.8.0",
+    "sql.js": "^1.10.0"
+  }
+}

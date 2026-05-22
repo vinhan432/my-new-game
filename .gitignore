@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Database
+*.db
+
+# Backup files
+*.backup
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
