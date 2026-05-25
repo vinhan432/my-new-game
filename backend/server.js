@@ -4,13 +4,8 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
- 7| const db = require('./db');\
- 8| const path = require('path');\
- 9| app.use(express.static(path.join(__dirname, '..')));\
- 10| \
-
-10|app.use(express.static(path.join(__dirname, '..')));
-11|// --- Express setup ---
+const db = require('./db');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
@@ -20,15 +15,15 @@ app.use(cors({
   methods: ['GET', 'POST'],
   credentials: false
 }));
-// Disable helmet CSP for local dev — it blocks Chrome DevTools discovery and WebSocket connections
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false
 }));
 app.use(express.json());
 
-// Suppress favicon 404 noise
 app.get('/favicon.ico', (req, res) => res.status(204).end());
+
+app.use(express.static(path.join(__dirname, '..')));
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -39,12 +34,8 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// --- Database init (must complete before server accepts requests) ---
-
 let dbReady = false;
 db.init().then(() => { dbReady = true; }).catch(err => { console.error('[DB] Init failed:', err.message); });
-
-// --- Validation helpers ---
 
 const NAME_REGEX = /^[a-zA-Z0-9 ]{1,20}$/;
 
@@ -85,42 +76,34 @@ function validateScore(body) {
     errors.push("mode must be 'solo' or 'coop'");
   }
 
-  // Impossible value checks
   if (typeof body.score === 'number' && typeof body.waveReached === 'number') {
-    // Max score per wave is roughly 50000
     if (body.score > 50000 * body.waveReached) {
       errors.push('Score exceeds maximum possible value for the given wave');
     }
-    // Must have some score if reached later waves (enemies give points)
     if (body.waveReached >= 3 && body.score < 100) {
       errors.push('Score too low for wave reached');
     }
   }
 
-  // Kills consistency: must have kills if reached later waves
   if (typeof body.kills === 'number' && typeof body.waveReached === 'number') {
     if (body.waveReached >= 2 && body.kills < 1) {
       errors.push('Must have at least 1 kill to reach wave 2+');
     }
-    // Each wave spawns ~5-15 enemies, so max kills is roughly 15 * wave
     if (body.kills > 20 * body.waveReached) {
       errors.push('Kills exceed maximum possible for the given wave');
     }
   }
 
-  // Run duration consistency: each wave takes at least 15 seconds
   if (typeof body.runDuration === 'number' && typeof body.waveReached === 'number') {
-    const minDuration = body.waveReached * 10; // 10 seconds minimum per wave
+    const minDuration = body.waveReached * 10;
     if (body.runDuration < minDuration) {
       errors.push('Run duration too short for wave reached');
     }
-    // Max ~5 minutes per wave (300 seconds)
     if (body.runDuration > body.waveReached * 300 + 60) {
       errors.push('Run duration exceeds maximum for wave reached');
     }
   }
 
-  // Kill rate check: max ~3 kills/second (shotgun burst at close range)
   if (typeof body.kills === 'number' && typeof body.runDuration === 'number' && body.runDuration > 0) {
     const killRate = body.kills / body.runDuration;
     if (killRate > 5) {
@@ -128,7 +111,6 @@ function validateScore(body) {
     }
   }
 
-  // Score per kill ratio: min ~50 points per kill (grunt = 100pts)
   if (typeof body.score === 'number' && typeof body.kills === 'number' && body.kills > 0) {
     const scorePerKill = body.score / body.kills;
     if (scorePerKill < 30) {
@@ -139,9 +121,6 @@ function validateScore(body) {
   return errors;
 }
 
-// --- REST endpoints ---
-
-// Middleware to ensure DB is ready
 function requireDb(req, res, next) {
   if (!dbReady) return res.status(503).json({ success: false, error: 'Database initializing' });
   next();
@@ -189,8 +168,6 @@ app.post('/api/scores', requireDb, (req, res) => {
   }
 });
 
-// --- Socket.IO setup ---
-
 const io = new Server(server, {
   cors: {
     origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
@@ -199,14 +176,12 @@ const io = new Server(server, {
   connectionStateRecovery: { maxDisconnectionDuration: 30000 }
 });
 
-// Connection rate limiting for Socket.IO
 const connectionCounts = new Map();
 io.use((socket, next) => {
   const ip = socket.handshake.address;
   const now = Date.now();
   const entry = connectionCounts.get(ip);
   if (entry) {
-    // Allow max 10 connections per 5 minutes per IP
     if (now - entry.windowStart < 300000 && entry.count >= 10) {
       return next(new Error('Too many connections'));
     }
@@ -311,7 +286,6 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // Leave existing room if in one
       const existing = getRoomBySocket(socket);
       if (existing) {
         socket.leave(existing.code);
@@ -332,10 +306,8 @@ io.on('connection', (socket) => {
       socket.join(code);
       socket.roomCode = code;
 
-      // Notify others
       socket.to(code).emit('playerJoined', { id: socket.id, name });
 
-      // Send room state to joiner
       const players = [];
       for (const [id, player] of room.players) {
         if (id !== socket.id) {
@@ -368,7 +340,6 @@ io.on('connection', (socket) => {
     const player = room.players.get(socket.id);
     if (!player) return;
 
-    // Update stored state
     if (data) {
       if (typeof data.x === 'number') player.x = data.x;
       if (typeof data.y === 'number') player.y = data.y;
@@ -448,8 +419,6 @@ function handleLeaveRoom(socket) {
   }
 }
 
-// --- Graceful shutdown ---
-
 function shutdown() {
   console.log('\n[Server] Shutting down...');
   db.close();
@@ -460,8 +429,6 @@ function shutdown() {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
-
-// --- Start server ---
 
 const PORT = process.env.PORT || 3000;
 
