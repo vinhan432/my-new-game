@@ -85,8 +85,11 @@ class TileMap {
         const endRow = Math.min(this.rows, Math.ceil((cameraOffset.y + canvasHeight) / this.tileSize) + 1);
         const td = this.themeData;
 
-        for (let y = startRow; y < endRow; y++) for (let x = startCol; x < endCol; x++) {
+        for (let y = startRow; y < endRow; y++) {
+            if (!this.tiles[y]) continue;
+            for (let x = startCol; x < endCol; x++) {
             const tile = this.tiles[y][x];
+            if (!tile) continue;
             const sx = x * this.tileSize - cameraOffset.x, sy = y * this.tileSize - cameraOffset.y;
             // Pick color from theme
             let colors;
@@ -101,8 +104,8 @@ class TileMap {
             const ci = tile.variation > 0.6 ? 0 : tile.variation > 0.3 ? 1 : 2;
             ctx.fillStyle = colors[ci]; ctx.fillRect(sx, sy, this.tileSize + 1, this.tileSize + 1);
 
-            // Terrain detail
-            if (quality !== 'low') {
+            // Terrain detail (skip on low + medium for performance)
+            if (quality === 'high') {
                 const v = tile.variation, d = tile.detail, dec = tile.decoration;
                 if (tile.type === 'road') {
                     // Cracks
@@ -116,35 +119,73 @@ class TileMap {
                     if (this.theme === 'industrial' && dec > 0.85) {
                         ctx.fillStyle = 'rgba(40,60,80,0.15)'; ctx.beginPath(); ctx.ellipse(sx + v * 30 + 15, sy + d * 30 + 15, 12, 8, 0, 0, Math.PI * 2); ctx.fill();
                     }
+                    // Manhole covers
+                    if (dec > 0.92 && d > 0.5) {
+                        ctx.strokeStyle = 'rgba(50,50,50,0.3)'; ctx.lineWidth = 1;
+                        ctx.beginPath(); ctx.arc(sx + 32, sy + 32, 8, 0, Math.PI * 2); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(sx + 26, sy + 32); ctx.lineTo(sx + 38, sy + 32); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(sx + 32, sy + 26); ctx.lineTo(sx + 32, sy + 38); ctx.stroke();
+                    }
+                    // Road stains
+                    if (dec > 0.78 && d > 0.4) {
+                        ctx.fillStyle = 'rgba(30,30,30,0.08)';
+                        ctx.beginPath(); ctx.ellipse(sx + v * 40 + 10, sy + d * 40 + 10, 10 + d * 8, 6 + d * 4, v * Math.PI, 0, Math.PI * 2); ctx.fill();
+                    }
                 } else if (tile.type === 'grass' || tile.type === 'grassDark') {
                     // Grass blades
                     const bladeColor = tile.type === 'grassDark' ? 'rgba(40,80,30,0.5)' : 'rgba(80,130,60,0.4)';
                     ctx.fillStyle = bladeColor;
-                    for (let i = 0; i < 5; i++) {
-                        const bx = sx + (v * 40 + i * 12) % 55, by = sy + (d * 30 + i * 16) % 50;
-                        ctx.fillRect(bx, by, 1.5, 3 + d * 4);
+                    for (let i = 0; i < 6; i++) {
+                        const bx = sx + (v * 40 + i * 10) % 55, by = sy + (d * 30 + i * 14) % 50;
+                        const bladeH = 3 + d * 5;
+                        const bladeLean = Math.sin(v * 10 + i) * 1.5;
+                        ctx.beginPath(); ctx.moveTo(bx, by + bladeH); ctx.lineTo(bx + bladeLean, by); ctx.lineTo(bx + bladeLean + 0.5, by + 0.5); ctx.lineTo(bx + 0.5, by + bladeH); ctx.fill();
                     }
                     // Small flowers in forest
-                    if (this.theme === 'forest' && dec > 0.9) {
-                        ctx.fillStyle = ['#FFE066', '#FF9999', '#99CCFF'][Math.floor(v * 3)];
-                        ctx.beginPath(); ctx.arc(sx + v * 45 + 8, sy + d * 45 + 8, 2, 0, Math.PI * 2); ctx.fill();
+                    if (this.theme === 'forest' && dec > 0.88) {
+                        const flowerColors = ['#FFE066', '#FF9999', '#99CCFF', '#FFB6C1', '#98FB98'];
+                        ctx.fillStyle = flowerColors[Math.floor(v * 5) % 5];
+                        ctx.beginPath(); ctx.arc(sx + v * 45 + 8, sy + d * 45 + 8, 2.5, 0, Math.PI * 2); ctx.fill();
+                        ctx.fillStyle = '#FFFF00';
+                        ctx.beginPath(); ctx.arc(sx + v * 45 + 8, sy + d * 45 + 8, 1, 0, Math.PI * 2); ctx.fill();
                     }
                     // Grass tuft
                     if (dec > 0.75) {
                         ctx.fillStyle = 'rgba(100,160,70,0.25)'; ctx.beginPath(); ctx.arc(sx + v * 40 + 10, sy + d * 40 + 10, 4, 0, Math.PI * 2); ctx.fill();
                     }
+                    // Mushrooms in forest
+                    if (this.theme === 'forest' && dec > 0.95 && v > 0.7) {
+                        ctx.fillStyle = '#D2691E';
+                        ctx.fillRect(sx + 20, sy + 35, 2, 5);
+                        ctx.fillStyle = '#8B4513';
+                        ctx.beginPath(); ctx.arc(sx + 21, sy + 34, 4, Math.PI, 0); ctx.fill();
+                    }
                 } else if (tile.type === 'dirt') {
                     // Pebbles
                     ctx.fillStyle = 'rgba(90,70,50,0.2)';
-                    for (let i = 0; i < 3; i++) ctx.beginPath(), ctx.arc(sx + (v * 30 + i * 18) % 50, sy + (d * 25 + i * 22) % 50, 1.5 + d, 0, Math.PI * 2), ctx.fill();
+                    for (let i = 0; i < 4; i++) {
+                        const px = sx + (v * 30 + i * 15) % 50, py = sy + (d * 25 + i * 18) % 50;
+                        ctx.beginPath(); ctx.arc(px, py, 1.5 + (i % 2) * d, 0, Math.PI * 2); ctx.fill();
+                    }
                     // Tire tracks
                     if (dec > 0.8) {
                         ctx.strokeStyle = 'rgba(60,50,35,0.15)'; ctx.lineWidth = 2;
                         ctx.beginPath(); ctx.moveTo(sx + 10, sy + v * 20 + 20); ctx.lineTo(sx + 50, sy + v * 20 + 22); ctx.stroke();
                     }
+                    // Small rocks
+                    if (dec > 0.85 && v > 0.5) {
+                        ctx.fillStyle = 'rgba(100,90,80,0.25)';
+                        ctx.beginPath(); ctx.ellipse(sx + 30, sy + 20, 4, 3, v * 2, 0, Math.PI * 2); ctx.fill();
+                    }
                 } else if (tile.type === 'sand') {
                     // Sand ripples
                     if (d > 0.5) { ctx.strokeStyle = 'rgba(180,170,120,0.18)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(sx + 5, sy + v * 30 + 15); ctx.quadraticCurveTo(sx + 30, sy + v * 20, sx + 55, sy + v * 30 + 20); ctx.stroke(); }
+                    // Footprints in sand
+                    if (dec > 0.9 && v > 0.6) {
+                        ctx.fillStyle = 'rgba(150,140,100,0.15)';
+                        ctx.beginPath(); ctx.ellipse(sx + 15, sy + 25, 3, 4, 0.3, 0, Math.PI * 2); ctx.fill();
+                        ctx.beginPath(); ctx.ellipse(sx + 25, sy + 30, 3, 4, -0.2, 0, Math.PI * 2); ctx.fill();
+                    }
                     // Scorpions/bugs in desert
                     if (this.theme === 'desert' && dec > 0.95) {
                         ctx.fillStyle = 'rgba(80,60,40,0.3)'; ctx.beginPath(); ctx.arc(sx + 30, sy + 30, 2, 0, Math.PI * 2); ctx.fill();
@@ -156,12 +197,44 @@ class TileMap {
                     if (y % 4 === 0) { ctx.strokeStyle = 'rgba(0,0,0,0.06)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + this.tileSize, sy); ctx.stroke(); }
                     // Stains
                     if (dec > 0.85) { ctx.fillStyle = 'rgba(40,40,40,0.1)'; ctx.beginPath(); ctx.ellipse(sx + v * 40 + 10, sy + d * 40 + 10, 8, 6, v * Math.PI, 0, Math.PI * 2); ctx.fill(); }
+                    // Cracks in concrete
+                    if (dec > 0.8 && d > 0.6) {
+                        ctx.strokeStyle = 'rgba(0,0,0,0.1)'; ctx.lineWidth = 0.5;
+                        ctx.beginPath(); ctx.moveTo(sx + 10, sy + 10); ctx.lineTo(sx + 25 + v * 10, sy + 20 + d * 10); ctx.lineTo(sx + 40, sy + 15); ctx.stroke();
+                    }
+                    // Drain grates
+                    if (dec > 0.93 && v > 0.7) {
+                        ctx.strokeStyle = 'rgba(40,40,40,0.25)'; ctx.lineWidth = 1;
+                        ctx.strokeRect(sx + 20, sy + 20, 12, 12);
+                        for (let gi = 0; gi < 3; gi++) {
+                            ctx.beginPath(); ctx.moveTo(sx + 23 + gi * 3, sy + 20); ctx.lineTo(sx + 23 + gi * 3, sy + 32); ctx.stroke();
+                        }
+                    }
                 } else if (tile.type === 'rust') {
                     // Rust spots
                     ctx.fillStyle = 'rgba(120,60,20,0.15)';
                     ctx.beginPath(); ctx.arc(sx + v * 40 + 12, sy + d * 40 + 12, 5 + d * 4, 0, Math.PI * 2); ctx.fill();
                     if (dec > 0.7) { ctx.fillStyle = 'rgba(100,50,15,0.1)'; ctx.beginPath(); ctx.arc(sx + (1 - v) * 30 + 10, sy + (1 - d) * 30 + 10, 4, 0, Math.PI * 2); ctx.fill(); }
+                    // Metal debris
+                    if (dec > 0.88 && v > 0.6) {
+                        ctx.fillStyle = 'rgba(80,60,40,0.2)';
+                        ctx.save(); ctx.translate(sx + 25, sy + 25); ctx.rotate(v * 3);
+                        ctx.fillRect(-5, -2, 10, 4); ctx.restore();
+                    }
+                } else if (tile.type === 'snow') {
+                    // Sparkle on snow
+                    if (dec > 0.85 && quality === 'high') {
+                        const sparkle = Math.sin(performance.now() * 0.003 + v * 10) * 0.5 + 0.5;
+                        ctx.fillStyle = `rgba(255,255,255,${sparkle * 0.4})`;
+                        ctx.beginPath(); ctx.arc(sx + v * 50 + 10, sy + d * 50 + 10, 1.5, 0, Math.PI * 2); ctx.fill();
+                    }
+                    // Footprints in snow
+                    if (dec > 0.9 && v > 0.5) {
+                        ctx.fillStyle = 'rgba(180,180,200,0.2)';
+                        ctx.beginPath(); ctx.ellipse(sx + 20, sy + 30, 3, 4, 0.2, 0, Math.PI * 2); ctx.fill();
+                    }
                 }
+            }
             }
         }
     }
@@ -232,7 +305,7 @@ class Building extends Obstacle {
         // Interior details (floor tiles, debris)
         const s = this.detailSeed;
         ctx.fillStyle = 'rgba(0,0,0,0.08)';
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < 8; i++) {
             const ix = sx + 15 + (s * 40 + i * 37) % (this.w - 30), iy = sy + 15 + (s * 53 + i * 41) % (this.h - 30);
             ctx.fillRect(ix, iy, 6 + (i % 3) * 3, 3);
         }
@@ -240,6 +313,18 @@ class Building extends Obstacle {
         ctx.strokeStyle = 'rgba(0,0,0,0.05)'; ctx.lineWidth = 1;
         for (let fy = 0; fy < this.h; fy += 20) { ctx.beginPath(); ctx.moveTo(sx, sy + fy); ctx.lineTo(sx + this.w, sy + fy); ctx.stroke(); }
         for (let fx = 0; fx < this.w; fx += 20) { ctx.beginPath(); ctx.moveTo(sx + fx, sy); ctx.lineTo(sx + fx, sy + this.h); ctx.stroke(); }
+        // Interior furniture/details
+        if (s > 0.5) {
+            // Desk or table
+            ctx.fillStyle = 'rgba(80,60,40,0.15)';
+            ctx.fillRect(sx + 20 + (s * 30) % (this.w - 60), sy + 20 + (s * 25) % (this.h - 50), 30, 20);
+        }
+        if (s > 0.3) {
+            // Shelf or rack
+            ctx.fillStyle = 'rgba(60,50,35,0.12)';
+            const shelfX = sx + 10 + (s * 50) % (this.w - 30);
+            ctx.fillRect(shelfX, sy + 10, 3, this.h - 20);
+        }
         // Walls with highlights
         for (const wall of this.getCollisionRects()) {
             const wx = wall.x - cameraOffset.x, wy = wall.y - cameraOffset.y;
@@ -257,6 +342,9 @@ class Building extends Obstacle {
         for (const door of this.doorPositions) {
             ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(sx + door.x, sy + door.y, door.w, door.h);
             ctx.fillStyle = 'rgba(60,50,40,0.4)'; ctx.fillRect(sx + door.x + 1, sy + door.y + 1, door.w - 2, door.h - 2);
+            // Door frame
+            ctx.strokeStyle = 'rgba(80,60,40,0.5)'; ctx.lineWidth = 1;
+            ctx.strokeRect(sx + door.x, sy + door.y, door.w, door.h);
         }
     }
 }
@@ -322,10 +410,28 @@ class Vehicle extends Obstacle {
             ctx.beginPath(); ctx.arc(-5, 0, 8, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = 'rgba(60,30,0,0.3)';
             ctx.beginPath(); ctx.arc(8, -3, 6, 0, Math.PI * 2); ctx.fill();
+            // Smoke wisps from destroyed vehicle
+            ctx.fillStyle = 'rgba(60,60,60,0.15)';
+            for (let i = 0; i < 3; i++) {
+                const t = performance.now() * 0.001 + i * 2;
+                const smokeX = Math.sin(t * 0.7) * 8;
+                const smokeY = -this.h / 2 - 5 - Math.abs(Math.sin(t * 0.5)) * 15;
+                const smokeR = 4 + Math.sin(t * 1.2) * 2;
+                ctx.beginPath(); ctx.arc(smokeX, smokeY, smokeR, 0, Math.PI * 2); ctx.fill();
+            }
         } else {
             const damaged = this.hp < this.maxHp / 2;
             ctx.fillStyle = damaged ? '#1A1A1A' : this.color;
             ctx.fillRect(-this.w / 2, -this.h / 2, this.w, this.h);
+            // Paint shine (gradient)
+            if (!damaged) {
+                const shine = ctx.createLinearGradient(-this.w / 2, -this.h / 2, -this.w / 2, this.h / 2);
+                shine.addColorStop(0, 'rgba(255,255,255,0.08)');
+                shine.addColorStop(0.5, 'rgba(255,255,255,0)');
+                shine.addColorStop(1, 'rgba(0,0,0,0.05)');
+                ctx.fillStyle = shine;
+                ctx.fillRect(-this.w / 2, -this.h / 2, this.w, this.h);
+            }
             // Type-specific details
             if (this.vehicleType === 'truck') {
                 ctx.fillStyle = damaged ? '#151515' : 'rgba(30,30,30,0.8)';
@@ -334,22 +440,36 @@ class Vehicle extends Obstacle {
                 ctx.fillRect(this.w / 2 - 22, -this.h / 2 + 4, 4, this.h - 8);
                 ctx.fillStyle = 'rgba(20,20,20,0.5)';
                 ctx.fillRect(-this.w / 2 + 2, -this.h / 2 + 3, this.w / 2 - 5, this.h - 6);
+                // Cargo details
+                ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 1;
+                for (let i = 0; i < 3; i++) {
+                    ctx.beginPath(); ctx.moveTo(-this.w / 2 + 5 + i * 15, -this.h / 2 + 3); ctx.lineTo(-this.w / 2 + 5 + i * 15, this.h / 2 - 3); ctx.stroke();
+                }
             } else if (this.vehicleType === 'suv') {
                 ctx.fillStyle = 'rgba(20,20,20,0.6)';
                 ctx.fillRect(-this.w / 4, -this.h / 2 + 2, this.w / 2, this.h - 4);
                 ctx.fillStyle = 'rgba(100,150,200,0.35)';
                 ctx.fillRect(-this.w / 4 + 3, -this.h / 2 + 4, this.w / 2 - 6, this.h - 8);
+                // Roof rack
+                ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 1;
+                ctx.strokeRect(-this.w / 4 + 5, -this.h / 2, this.w / 2 - 10, 2);
             } else if (this.vehicleType === 'van') {
                 ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 1;
                 ctx.beginPath(); ctx.moveTo(-this.w / 4, -this.h / 2); ctx.lineTo(-this.w / 4, this.h / 2); ctx.stroke();
                 ctx.fillStyle = 'rgba(100,150,200,0.3)';
                 ctx.fillRect(this.w / 2 - 18, -this.h / 2 + 3, 5, this.h - 6);
+                // Side door handle
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                ctx.fillRect(-this.w / 4 + 5, -2, 8, 3);
             } else {
                 // Car: roof/window
                 ctx.fillStyle = '#111A2A';
                 ctx.fillRect(-this.w / 4, -this.h / 2 + 3, this.w / 2, this.h / 3);
                 ctx.fillStyle = 'rgba(100,150,200,0.3)';
                 ctx.fillRect(-this.w / 4 + 2, -this.h / 2 + 4, this.w / 2 - 4, this.h / 3 - 2);
+                // Window reflection
+                ctx.fillStyle = 'rgba(200,220,255,0.1)';
+                ctx.beginPath(); ctx.moveTo(-this.w / 4 + 3, -this.h / 2 + 5); ctx.lineTo(-this.w / 4 + 12, -this.h / 2 + 5); ctx.lineTo(-this.w / 4 + 3, -this.h / 2 + 12); ctx.closePath(); ctx.fill();
             }
             // Wheels (all types)
             ctx.fillStyle = '#111';
@@ -358,14 +478,28 @@ class Vehicle extends Obstacle {
             ctx.fillRect(-this.w / 2 + 2, this.h / 2 - 2, wheelW, 4);
             ctx.fillRect(this.w / 2 - wheelW - 2, -this.h / 2 - 2, wheelW, 4);
             ctx.fillRect(this.w / 2 - wheelW - 2, this.h / 2 - 2, wheelW, 4);
+            // Wheel detail (hub caps)
+            ctx.fillStyle = 'rgba(60,60,60,0.4)';
+            for (const wx of [-this.w / 2 + 2 + wheelW / 2, this.w / 2 - 2 - wheelW / 2]) {
+                for (const wy of [-this.h / 2 - 2 + 2, this.h / 2 - 2 + 2]) {
+                    ctx.beginPath(); ctx.arc(wx, wy, 1.5, 0, Math.PI * 2); ctx.fill();
+                }
+            }
             // Headlights (all types)
             ctx.fillStyle = 'rgba(255,255,200,0.4)';
             ctx.fillRect(this.w / 2 - 3, -this.h / 2 + 3, 2, 4);
             ctx.fillRect(this.w / 2 - 3, this.h / 2 - 7, 2, 4);
+            // Tail lights
+            ctx.fillStyle = 'rgba(255,0,0,0.3)';
+            ctx.fillRect(-this.w / 2 + 1, -this.h / 2 + 3, 2, 3);
+            ctx.fillRect(-this.w / 2 + 1, this.h / 2 - 6, 2, 3);
             // Damage cracks
             if (damaged) {
                 ctx.strokeStyle = 'rgba(100,100,100,0.4)'; ctx.lineWidth = 1;
                 ctx.beginPath(); ctx.moveTo(-8, -this.h / 2); ctx.lineTo(-3, 0); ctx.lineTo(-10, this.h / 2); ctx.stroke();
+                // Scorch marks
+                ctx.fillStyle = 'rgba(40,30,20,0.3)';
+                ctx.beginPath(); ctx.arc(5, -3, 6, 0, Math.PI * 2); ctx.fill();
             }
         }
         ctx.restore();
@@ -382,7 +516,7 @@ const Van = Vehicle;
 // BARREL - Enhanced
 // ============================================================
 class Barrel extends Obstacle {
-    constructor(x, y) { super(x, y, 24, 24, 'barrel'); this.radius = 12; this.hp = 3; this.maxHp = 3; this.destroyed = false; }
+    constructor(x, y) { super(x, y, 24, 24, 'barrel'); this.radius = 12; this.hp = 3; this.maxHp = 3; this.destroyed = false; this._heatPhase = Math.random() * Math.PI * 2; }
     isSolid() { return !this.destroyed; } blocksBullets() { return !this.destroyed; }
     takeDamage(amount, game) {
         if (this.destroyed) return;
@@ -401,6 +535,14 @@ class Barrel extends Obstacle {
             // Debris
             ctx.fillStyle = '#555';
             ctx.fillRect(sx - 6, sy - 3, 4, 3); ctx.fillRect(sx + 2, sy + 1, 3, 4); ctx.fillRect(sx - 2, sy + 4, 5, 2);
+            // Smoke wisps
+            ctx.fillStyle = 'rgba(40,40,40,0.2)';
+            const t = performance.now() * 0.001;
+            for (let i = 0; i < 2; i++) {
+                const smokeX = sx + Math.sin(t * 0.5 + i * 3) * 5;
+                const smokeY = sy - 8 - Math.abs(Math.sin(t * 0.3 + i * 2)) * 10;
+                ctx.beginPath(); ctx.arc(smokeX, smokeY, 3 + i, 0, Math.PI * 2); ctx.fill();
+            }
         } else {
             // Shadow
             ctx.beginPath(); ctx.arc(sx + 3, sy + 3, this.radius, 0, Math.PI * 2);
@@ -409,16 +551,28 @@ class Barrel extends Obstacle {
             ctx.beginPath(); ctx.arc(sx, sy, this.radius, 0, Math.PI * 2);
             ctx.fillStyle = '#CC6600'; ctx.fill();
             ctx.strokeStyle = '#8B4513'; ctx.lineWidth = 2; ctx.stroke();
-            // Bands
-            ctx.strokeStyle = '#5A3A1A'; ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.arc(sx, sy, this.radius * 0.7, 0, Math.PI * 2); ctx.stroke();
-            ctx.beginPath(); ctx.arc(sx, sy, this.radius * 0.4, 0, Math.PI * 2); ctx.stroke();
-            // Highlight
-            ctx.fillStyle = 'rgba(255,200,100,0.15)';
-            ctx.beginPath(); ctx.arc(sx - 3, sy - 3, this.radius * 0.5, 0, Math.PI * 2); ctx.fill();
+            // Metal bands
+            ctx.strokeStyle = '#5A3A1A'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.arc(sx, sy, this.radius * 0.85, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.arc(sx, sy, this.radius * 0.55, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.arc(sx, sy, this.radius * 0.25, 0, Math.PI * 2); ctx.stroke();
+            // Highlight (3D effect)
+            const grad = ctx.createRadialGradient(sx - 3, sy - 3, 0, sx, sy, this.radius);
+            grad.addColorStop(0, 'rgba(255,200,100,0.2)');
+            grad.addColorStop(0.5, 'rgba(255,200,100,0.05)');
+            grad.addColorStop(1, 'rgba(0,0,0,0.1)');
+            ctx.beginPath(); ctx.arc(sx, sy, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = grad; ctx.fill();
             // Warning label
             ctx.fillStyle = '#000'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText('!', sx, sy);
+            // Danger glow when damaged
+            if (this.hp < this.maxHp) {
+                this._heatPhase += 0.05;
+                const heatAlpha = 0.15 + Math.sin(this._heatPhase) * 0.1;
+                ctx.fillStyle = `rgba(255,80,0,${heatAlpha})`;
+                ctx.beginPath(); ctx.arc(sx, sy, this.radius + 3, 0, Math.PI * 2); ctx.fill();
+            }
         }
     }
 }
@@ -427,30 +581,41 @@ class Barrel extends Obstacle {
 // TREE - Enhanced with shadow and detail
 // ============================================================
 class Tree extends Obstacle {
-    constructor(x, y, radius = 20) { super(x, y, radius * 2, radius * 2, 'tree'); this.radius = radius; this.detailSeed = Math.random(); }
+    constructor(x, y, radius = 20) { super(x, y, radius * 2, radius * 2, 'tree'); this.radius = radius; this.detailSeed = Math.random(); this._swayPhase = Math.random() * Math.PI * 2; }
     isSolid() { return true; } blocksBullets() { return false; }
     render(ctx, cameraOffset) {
         const sx = this.x + this.radius - cameraOffset.x, sy = this.y + this.radius - cameraOffset.y;
         // Viewport culling
         const margin = this.radius + 10;
         if (sx < -margin || sx > ctx.canvas.width + margin || sy < -margin || sy > ctx.canvas.height + margin) return;
+        // Gentle sway
+        this._swayPhase += 0.002;
+        const swayX = Math.sin(this._swayPhase + this.detailSeed * 10) * 1.5;
+        const swayY = Math.cos(this._swayPhase * 0.7 + this.detailSeed * 5) * 0.5;
         // Ground shadow
         ctx.beginPath(); ctx.ellipse(sx + 5, sy + 6, this.radius * 1.1, this.radius * 0.7, 0.3, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fill();
         // Main canopy
-        ctx.beginPath(); ctx.arc(sx, sy, this.radius, 0, Math.PI * 2);
+        ctx.beginPath(); ctx.arc(sx + swayX, sy + swayY, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = '#2D5A1E'; ctx.fill();
         // Lighter patch
-        ctx.beginPath(); ctx.arc(sx - this.radius * 0.25, sy - this.radius * 0.25, this.radius * 0.7, 0, Math.PI * 2);
+        ctx.beginPath(); ctx.arc(sx - this.radius * 0.25 + swayX, sy - this.radius * 0.25 + swayY, this.radius * 0.7, 0, Math.PI * 2);
         ctx.fillStyle = '#3A7A28'; ctx.fill();
         // Detail leaves
-        if (this.detailSeed > 0.5) {
+        if (this.detailSeed > 0.3) {
             ctx.fillStyle = '#4A8A38';
-            ctx.beginPath(); ctx.arc(sx + this.radius * 0.3, sy - this.radius * 0.1, this.radius * 0.35, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(sx + this.radius * 0.3 + swayX, sy - this.radius * 0.1 + swayY, this.radius * 0.35, 0, Math.PI * 2); ctx.fill();
+        }
+        if (this.detailSeed > 0.6) {
+            ctx.fillStyle = '#357A25';
+            ctx.beginPath(); ctx.arc(sx - this.radius * 0.15 + swayX, sy + this.radius * 0.25 + swayY, this.radius * 0.3, 0, Math.PI * 2); ctx.fill();
         }
         // Trunk
         ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2);
         ctx.fillStyle = '#4A2A0A'; ctx.fill();
+        // Trunk shadow
+        ctx.beginPath(); ctx.arc(sx + 1, sy + 1, 3, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fill();
     }
 }
 

@@ -1,5 +1,5 @@
 /**
- * Dodge Warfare - Phase 5
+ * Dodge Warfare - Phase 6
  * Engine - Core utilities, Input, Camera, AudioManager, PersistenceManager
  */
 
@@ -9,19 +9,28 @@
 function clamp(val, min, max) { return Math.max(min, Math.min(max, val)); }
 function lerp(a, b, t) { return a + (b - a) * t; }
 function distance(x1, y1, x2, y2) { return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2); }
+function distanceSq(x1, y1, x2, y2) { const dx = x2 - x1, dy = y2 - y1; return dx * dx + dy * dy; }
 function rectContains(rx, ry, rw, rh, px, py, pr = 0) {
     return px + pr > rx && px - pr < rx + rw && py + pr > ry && py - pr < ry + rh;
 }
 function circleRectOverlap(cx, cy, cr, rx, ry, rw, rh) {
     const closestX = clamp(cx, rx, rx + rw);
     const closestY = clamp(cy, ry, ry + rh);
-    return distance(cx, cy, closestX, closestY) < cr;
+    const dx = cx - closestX, dy = cy - closestY;
+    return (dx * dx + dy * dy) < cr * cr;
+}
+function circleOverlapSq(cx1, cy1, cr1, cx2, cy2, cr2) {
+    const dx = cx2 - cx1, dy = cy2 - cy1;
+    const rSum = cr1 + cr2;
+    return (dx * dx + dy * dy) < rSum * rSum;
 }
 function resolveCircleRect(cx, cy, cr, rx, ry, rw, rh) {
     const closestX = clamp(cx, rx, rx + rw);
     const closestY = clamp(cy, ry, ry + rh);
-    const dist = distance(cx, cy, closestX, closestY);
-    if (dist < cr && dist > 0) {
+    const dx = cx - closestX, dy = cy - closestY;
+    const distSq = dx * dx + dy * dy;
+    if (distSq < cr * cr && distSq > 0) {
+        const dist = Math.sqrt(distSq);
         const overlap = cr - dist;
         return { x: cx + ((cx - closestX) / dist) * overlap, y: cy + ((cy - closestY) / dist) * overlap, overlap };
     }
@@ -46,7 +55,32 @@ class ObjectPool {
     }
     release(obj) {
         obj.active = false;
-        this._pool.push(obj);
+        if (this._pool.length < 200) this._pool.push(obj);
+    }
+}
+
+// ============================================================
+// FPS-BASED DYNAMIC QUALITY SCALER
+// ============================================================
+class QualityScaler {
+    constructor() {
+        this.quality = 'high';
+        this._fpsHistory = [];
+        this._checkInterval = 0;
+        this._downscaled = false;
+        this._targetQuality = 'high';
+    }
+    update(dt, currentFps) {
+        this._fpsHistory.push(currentFps);
+        if (this._fpsHistory.length > 30) this._fpsHistory.shift();
+        this._checkInterval += dt;
+        if (this._checkInterval < 2.0) return this.quality; // Check every 2 seconds
+        this._checkInterval = 0;
+        const avgFps = this._fpsHistory.reduce((a, b) => a + b, 0) / this._fpsHistory.length;
+        if (avgFps < 20 && this.quality !== 'low') { this.quality = 'low'; this._downscaled = true; }
+        else if (avgFps < 35 && this.quality === 'high') { this.quality = 'medium'; this._downscaled = true; }
+        else if (avgFps > 50 && this.quality === 'medium' && !this._downscaled) { this.quality = 'high'; }
+        else if (avgFps > 55 && this.quality === 'low' && !this._downscaled) { this.quality = 'medium'; }
     }
 }
 
@@ -101,6 +135,134 @@ function rgbaFromHex(hex, alpha) {
 }
 
 // ============================================================
+// VIRTUAL JOYSTICK - Touch controls for mobile
+// ============================================================
+class VirtualJoystick {
+    constructor(x, y, radius, deadzone) {
+        this.baseX = x; this.baseY = y;
+        this.radius = radius; this.deadzone = deadzone;
+        this.thumbX = x; this.thumbY = y;
+        this.active = false; this.touchId = null;
+        this.vector = { x: 0, y: 0 };
+    }
+    onTouchStart(touchX, touchY, touchId) {
+        const dx = touchX - this.baseX, dy = touchY - this.baseY;
+        if (dx * dx + dy * dy < this.radius * this.radius * 1.5) {
+            this.active = true; this.touchId = touchId;
+            this.thumbX = touchX; this.thumbY = touchY;
+            this._updateVector();
+            return true;
+        }
+        return false;
+    }
+    onTouchMove(touchX, touchY) {
+        if (!this.active) return;
+        this.thumbX = touchX; this.thumbY = touchY;
+        this._updateVector();
+    }
+    onTouchEnd() {
+        this.active = false; this.touchId = null;
+        this.thumbX = this.baseX; this.thumbY = this.baseY;
+        this.vector = { x: 0, y: 0 };
+    }
+    _updateVector() {
+        let dx = this.thumbX - this.baseX, dy = this.thumbY - this.baseY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < this.deadzone) { this.vector = { x: 0, y: 0 }; return; }
+        const maxDist = this.radius;
+        const clamped = Math.min(dist, maxDist);
+        const nx = dx / dist, ny = dy / dist;
+        this.thumbX = this.baseX + nx * clamped;
+        this.thumbY = this.baseY + ny * clamped;
+        this.vector = { x: nx * (clamped / maxDist), y: ny * (clamped / maxDist) };
+    }
+    render(ctx) {
+        if (!this.active) return;
+        // Base circle
+        ctx.globalAlpha = 0.15;
+        ctx.beginPath(); ctx.arc(this.baseX, this.baseY, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#FFF'; ctx.fill();
+        ctx.globalAlpha = 0.4;
+        ctx.strokeStyle = '#FFF'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(this.baseX, this.baseY, this.radius, 0, Math.PI * 2); ctx.stroke();
+        // Thumb
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath(); ctx.arc(this.thumbX, this.thumbY, this.radius * 0.35, 0, Math.PI * 2);
+        ctx.fillStyle = '#FFF'; ctx.fill();
+        // Direction line
+        ctx.globalAlpha = 0.3;
+        ctx.strokeStyle = '#FFF'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(this.baseX, this.baseY); ctx.lineTo(this.thumbX, this.thumbY); ctx.stroke();
+        ctx.globalAlpha = 1;
+    }
+}
+
+// ============================================================
+// TOUCH BUTTON MANAGER - Action buttons for mobile
+// ============================================================
+class TouchButtonManager {
+    constructor() {
+        this.buttons = [];
+        this.isMobile = false;
+    }
+    init(screenWidth, screenHeight) {
+        this.isMobile = true;
+        const btnSize = Math.min(50, screenWidth * 0.08);
+        const margin = btnSize * 0.3;
+        // Position buttons on right side
+        const rightX = screenWidth - margin - btnSize;
+        this.buttons = [
+            { id: 'dodge', x: rightX - btnSize * 1.4, y: screenHeight - margin - btnSize * 2.5, size: btnSize, label: 'D', color: '#FF8800', pressed: false, touchId: null },
+            { id: 'sprint', x: margin + btnSize * 0.5, y: screenHeight - margin - btnSize * 2.5, size: btnSize * 0.8, label: 'S', color: '#00CCFF', pressed: false, touchId: null, toggle: true },
+            { id: 'reload', x: rightX, y: screenHeight - margin - btnSize * 4, size: btnSize * 0.7, label: 'R', color: '#FFD700', pressed: false, touchId: null },
+            { id: 'weapon', x: rightX - btnSize * 1.4, y: screenHeight - margin - btnSize * 4, size: btnSize * 0.7, label: 'W', color: '#FF44FF', pressed: false, touchId: null },
+            { id: 'pause', x: screenWidth - margin - btnSize * 0.5, y: margin + btnSize * 0.5, size: btnSize * 0.6, label: '| |', color: '#888', pressed: false, touchId: null }
+        ];
+    }
+    handleTouchStart(touches) {
+        for (const touch of touches) {
+            for (const btn of this.buttons) {
+                if (btn.touchId !== null) continue;
+                const dx = touch.x - btn.x, dy = touch.y - btn.y;
+                if (dx * dx + dy * dy < btn.size * btn.size) {
+                    btn.pressed = true; btn.touchId = touch.id;
+                    break;
+                }
+            }
+        }
+    }
+    handleTouchEnd(touchIds) {
+        for (const id of touchIds) {
+            for (const btn of this.buttons) {
+                if (btn.touchId === id) {
+                    if (!btn.toggle) btn.pressed = false;
+                    else btn.pressed = !btn.pressed;
+                    btn.touchId = null;
+                }
+            }
+        }
+    }
+    isPressed(id) { const b = this.buttons.find(b => b.id === id); return b ? b.pressed : false; }
+    justPressed(id) {
+        const b = this.buttons.find(b => b.id === id);
+        return b && b.pressed && b.touchId !== null;
+    }
+    render(ctx) {
+        for (const btn of this.buttons) {
+            ctx.globalAlpha = btn.pressed ? 0.6 : 0.25;
+            ctx.beginPath(); ctx.arc(btn.x, btn.y, btn.size, 0, Math.PI * 2);
+            ctx.fillStyle = btn.color; ctx.fill();
+            ctx.strokeStyle = '#FFF'; ctx.lineWidth = 2; ctx.stroke();
+            ctx.globalAlpha = btn.pressed ? 1 : 0.7;
+            ctx.font = `bold ${Math.floor(btn.size * 0.4)}px monospace`;
+            ctx.fillStyle = '#FFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(btn.label, btn.x, btn.y);
+        }
+        ctx.globalAlpha = 1;
+    }
+}
+
+// ============================================================
 // INPUT
 // ============================================================
 class Input {
@@ -108,6 +270,18 @@ class Input {
         this.keys = {}; this.keysJustPressed = {};
         this.mouse = { x: 0, y: 0, leftDown: false, rightDown: false, wheel: 0 };
         this.canvas = canvas; this._bindEvents();
+        // Touch/mobile support
+        this.isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        this.touches = {};
+        this.moveJoystick = new VirtualJoystick(0, 0, 60, 15);
+        this.aimJoystick = new VirtualJoystick(0, 0, 60, 15);
+        this.touchButtons = new TouchButtonManager();
+        this._aimAngle = 0;
+        this._aimActive = false;
+        if (this.isMobile) {
+            this.touchButtons.init(window.innerWidth, window.innerHeight);
+            this._repositionJoysticks(window.innerWidth, window.innerHeight);
+        }
     }
     _bindEvents() {
         window.addEventListener('keydown', (e) => {
@@ -143,10 +317,80 @@ class Input {
         this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
         // Prevent text selection
         this.canvas.addEventListener('selectstart', (e) => e.preventDefault());
+        // Touch events
+        this.canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            for (const t of e.changedTouches) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = t.clientX - rect.left, y = t.clientY - rect.top;
+                this.touches[t.identifier] = { x, y, startX: x, startY: y };
+                // Try joysticks
+                if (!this.moveJoystick.active) this.moveJoystick.onTouchStart(x, y, t.identifier);
+                if (!this.aimJoystick.active) this.aimJoystick.onTouchStart(x, y, t.identifier);
+            }
+            // Touch buttons
+            const touchList = Array.from(e.changedTouches).map(t => {
+                const rect = this.canvas.getBoundingClientRect();
+                return { id: t.identifier, x: t.clientX - rect.left, y: t.clientY - rect.top };
+            });
+            this.touchButtons.handleTouchStart(touchList);
+            // Init audio on touch
+            if (typeof game !== 'undefined' && game.audioManager && !game.audioManager.initialized) {
+                game.audioManager.init();
+                game.audioManager.resume();
+            }
+        }, { passive: false });
+        this.canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            for (const t of e.changedTouches) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = t.clientX - rect.left, y = t.clientY - rect.top;
+                if (this.touches[t.identifier]) { this.touches[t.identifier].x = x; this.touches[t.identifier].y = y; }
+                this.moveJoystick.onTouchMove(x, y);
+                this.aimJoystick.onTouchMove(x, y);
+            }
+        }, { passive: false });
+        this.canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            const endedIds = Array.from(e.changedTouches).map(t => t.identifier);
+            for (const id of endedIds) {
+                if (this.moveJoystick.touchId === id) this.moveJoystick.onTouchEnd();
+                if (this.aimJoystick.touchId === id) this.aimJoystick.onTouchEnd();
+                delete this.touches[id];
+            }
+            this.touchButtons.handleTouchEnd(endedIds);
+        }, { passive: false });
+        this.canvas.addEventListener('touchcancel', (e) => {
+            e.preventDefault();
+            const endedIds = Array.from(e.changedTouches).map(t => t.identifier);
+            for (const id of endedIds) {
+                if (this.moveJoystick.touchId === id) this.moveJoystick.onTouchEnd();
+                if (this.aimJoystick.touchId === id) this.aimJoystick.onTouchEnd();
+                delete this.touches[id];
+            }
+            this.touchButtons.handleTouchEnd(endedIds);
+        }, { passive: false });
     }
     isKey(code) { return !!this.keys[code]; }
     justPressed(code) { return !!this.keysJustPressed[code]; }
     clearJustPressed() { this.keysJustPressed = {}; this.mouse.wheel = 0; }
+    _repositionJoysticks(w, h) {
+        const joyRadius = Math.min(70, w * 0.1);
+        this.moveJoystick.radius = joyRadius;
+        this.aimJoystick.radius = joyRadius;
+        this.moveJoystick.baseX = joyRadius + 30;
+        this.moveJoystick.baseY = h - joyRadius - 80;
+        this.aimJoystick.baseX = w - joyRadius - 30;
+        this.aimJoystick.baseY = h - joyRadius - 80;
+        this.moveJoystick.deadzone = joyRadius * 0.2;
+        this.aimJoystick.deadzone = joyRadius * 0.2;
+    }
+    getMoveVector() { return this.moveJoystick.active ? this.moveJoystick.vector : null; }
+    getAimAngle(playerX, playerY, cameraOffset) {
+        if (!this.aimJoystick.active) return null;
+        return Math.atan2(this.aimJoystick.vector.y, this.aimJoystick.vector.x);
+    }
+    isTouchFiring() { return this.aimJoystick.active && (this.aimJoystick.vector.x !== 0 || this.aimJoystick.vector.y !== 0); }
 }
 
 // ============================================================
@@ -465,7 +709,16 @@ class PersistenceManager {
                 showDamageNumbers: true, showMinimap: true, screenShakeIntensity: 1.0,
                 graphicsQuality: 'high', showFps: false
             },
-            weaponPreferences: [0]
+            weaponPreferences: [0],
+            // Phase 6: Currency & Shop
+            coins: 0, totalCoinsEarned: 0,
+            purchasedItems: [], equippedPet: null, equippedDrone: null, equippedTeammate: null,
+            upgradeLevels: {},
+            // Achievements
+            achievementsUnlocked: [], bossesKilled: 0, maxPerksUsed: 0, noDeathRuns: 0,
+            maxCombo: 0, weaponsUsed: 0, missionsPlayed: [],
+            // Daily challenge
+            lastDailyDate: '', dailyChallengeId: ''
         };
     }
     _load() {
@@ -482,6 +735,29 @@ class PersistenceManager {
     }
     save() {
         try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
+    }
+    checkAchievements() {
+        const newUnlocks = [];
+        for (const achievement of CONFIG.achievements) {
+            if (this.data.achievementsUnlocked.includes(achievement.id)) continue;
+            if (achievement.check(this.data)) {
+                this.data.achievementsUnlocked.push(achievement.id);
+                newUnlocks.push(achievement);
+            }
+        }
+        if (newUnlocks.length > 0) this.save();
+        return newUnlocks;
+    }
+    getDailyChallenge() {
+        const today = new Date().toISOString().slice(0, 10);
+        if (this.data.lastDailyDate !== today) {
+            const seed = today.split('-').reduce((a, b) => a * 31 + parseInt(b), 0);
+            const idx = seed % CONFIG.dailyChallenges.length;
+            this.data.dailyChallengeId = CONFIG.dailyChallenges[idx].id;
+            this.data.lastDailyDate = today;
+            this.save();
+        }
+        return CONFIG.dailyChallenges.find(c => c.id === this.data.dailyChallengeId);
     }
     updateRunStats(score, wave, kills) {
         let isNewHighScore = false;
@@ -548,9 +824,9 @@ class LightingManager {
 class AmbientWeather {
     constructor() {
         this.particles = [];
-        this.maxParticles = 60;
+        this.maxParticles = 20; // Reduced from 60
         this.spawnTimer = 0;
-        this.spawnInterval = 0.05;
+        this.spawnInterval = 0.1; // Reduced frequency
     }
     update(dt, playerX, playerY) {
         this.spawnTimer += dt;

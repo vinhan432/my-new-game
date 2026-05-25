@@ -4,9 +4,13 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const db = require('./db');
+ 7| const db = require('./db');\
+ 8| const path = require('path');\
+ 9| app.use(express.static(path.join(__dirname, '..')));\
+ 10| \
 
-// --- Express setup ---
+10|app.use(express.static(path.join(__dirname, '..')));
+11|// --- Express setup ---
 
 const app = express();
 const server = http.createServer(app);
