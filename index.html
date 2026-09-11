@@ -1,32 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://my-new-game-production.up.railway.app wss://my-new-game-production.up.railway.app https://my-new-game-psl5i59ob-vinhan432s-projects.vercel.app blob: data:; script-src 'self' 'unsafe-inline' https://my-new-game-production.up.railway.app; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:;">
-    <title>Dodge Warfare - Phase 6</title>
-    <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#070b0b" />
+  <title>DEAD FREQUENCY // STATION 17</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <main id="app" aria-label="Dead Frequency command terminal">
     <canvas id="gameCanvas"></canvas>
-    <!-- Socket.IO (loaded from backend when available) -->
-    <script src="https://my-new-game-production.up.railway.app/socket.io/socket.io.js" onerror="console.log('Socket.IO not available - multiplayer disabled')"></script>
-    <!-- Game modules (order matters) -->
-    <script src="js/config.js"></script>
-    <script src="js/engine.js"></script>
-    <script src="js/world.js"></script>
-    <script src="js/entities.js"></script>
-    <script src="js/companions.js"></script>
-    <script src="js/systems.js"></script>
-    <script src="js/bot.js"></script>
-    <script src="js/ui.js"></script>
-    <script src="js/network.js"></script>
-    <script src="js/anticheat.js"></script>
-    <script src="js/game.js"></script>
-    <script src="js/feats.js"></script>
+    <div id="boot" class="boot"><span>STATION 17 // SECURE TERMINAL</span><b>INITIALIZING SENSOR ARRAY...</b></div>
+  </main>
+  <script src="js/dead-frequency.js"></script>
 </body>
 </html>
